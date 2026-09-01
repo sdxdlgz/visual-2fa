@@ -26,4 +26,5 @@ Use HTTPS, keep dependencies updated, restrict server access, and keep tested of
 - Do not add analytics, tag managers, remote scripts, or remote fonts.
 - Treat an XSS vulnerability as vault compromise.
 - Preserve the strict CSP nonce middleware and same-origin mutation checks.
-- All permanent deletion and secret-reveal paths must require recent reauthentication.
+- Permanent deletion, secret reveal, migration QR display, and plaintext key export must require recent reauthentication.
+- Plaintext key exports must be generated in the browser, carry an explicit warning, and never be sent to or logged by the server.

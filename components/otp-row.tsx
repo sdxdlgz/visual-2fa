@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, MoreHorizontal, Pencil, RotateCw, Star, Trash2 } from "lucide-react";
+import { CheckSquare2, Copy, GripVertical, MoreHorizontal, Pencil, RotateCw, Square, Star, Trash2 } from "lucide-react";
 import clsx from "clsx";
 import { generateOtp, otpTimeRemaining } from "@/lib/client/otp";
 import type { VaultItem } from "@/lib/shared/types";
@@ -15,6 +15,15 @@ interface OtpRowProps {
   onEdit: () => void;
   onDelete: () => void;
   onNextHotp: () => void;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onSelect?: () => void;
+  dragEnabled?: boolean;
+  dragging?: boolean;
+  onDragStart?: (event: React.DragEvent<HTMLElement>) => void;
+  onDragOver?: (event: React.DragEvent<HTMLElement>) => void;
+  onDrop?: (event: React.DragEvent<HTMLElement>) => void;
+  onDragEnd?: () => void;
 }
 
 function spacedCode(code: string): string {
@@ -22,14 +31,27 @@ function spacedCode(code: string): string {
   return `${code.slice(0, pivot)} ${code.slice(pivot)}`;
 }
 
-export function OtpRow({ item, now, comfortable, onOpen, onCopy, onFavorite, onEdit, onDelete, onNextHotp }: OtpRowProps) {
+export function OtpRow({ item, now, comfortable, onOpen, onCopy, onFavorite, onEdit, onDelete, onNextHotp, selectionMode = false, selected = false, onSelect, dragEnabled = false, dragging = false, onDragStart, onDragOver, onDrop, onDragEnd }: OtpRowProps) {
   const code = generateOtp(item, now);
   const remaining = item.type === "totp" ? otpTimeRemaining(item.period, now) : null;
   const progress = remaining === null ? 100 : (remaining / item.period) * 100;
   const expiring = remaining !== null && remaining <= 5;
 
   return (
-    <article className={clsx("otp-row", comfortable && "otp-row-comfortable", expiring && "otp-row-expiring")}>
+    <article
+      className={clsx("otp-row", comfortable && "otp-row-comfortable", expiring && "otp-row-expiring", selectionMode && "otp-row-selecting", selected && "otp-row-selected", dragEnabled && "otp-row-draggable", dragging && "otp-row-dragging")}
+      draggable={dragEnabled}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
+    >
+      {selectionMode && (
+        <button className="row-select" type="button" onClick={onSelect} aria-label={selected ? "取消选择" : "选择验证器"}>
+          {selected ? <CheckSquare2 size={19} /> : <Square size={19} />}
+        </button>
+      )}
+      {dragEnabled && <span className="drag-handle" title="拖拽调整顺序" aria-hidden="true"><GripVertical size={18} /></span>}
       <button className="otp-identity" type="button" onClick={onOpen} aria-label={`查看 ${item.issuer} ${item.accountName}`}>
         <span className="issuer-tile" style={{ "--issuer-color": item.color } as React.CSSProperties} aria-hidden="true">
           {item.issuer[0]?.toUpperCase() || "?"}

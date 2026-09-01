@@ -51,7 +51,7 @@ export interface VaultPreferences {
   backgroundLockMinutes: number;
   clipboardClearSeconds: number;
   viewMode: "compact" | "comfortable";
-  sortMode: "favorite" | "name" | "recent" | "created";
+  sortMode: "favorite" | "name" | "recent" | "created" | "manual";
 }
 
 export interface SessionSummary {

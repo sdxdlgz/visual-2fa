@@ -30,7 +30,8 @@ export async function POST(request: NextRequest) {
               iv = excluded.iv,
               sort_order = excluded.sort_order,
               updated_at = excluded.updated_at,
-              deleted_at = excluded.deleted_at`,
+              deleted_at = excluded.deleted_at
+             WHERE vault_items.user_id = excluded.user_id`,
             [item.id, session.user.id, item.version, item.ciphertext, item.iv, item.sortOrder, createdAt, now, item.deletedAt || null],
           );
           imported += 1;

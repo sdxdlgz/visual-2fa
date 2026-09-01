@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArchiveRestore,
+  CheckSquare2,
+  Download,
+  FolderCog,
+  FolderInput,
   ChevronsUpDown,
   Clock3,
   Folder,
@@ -16,11 +20,15 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  Tags,
+  X,
   Trash2,
   Vault,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BrandMark } from "@/components/brand-mark";
+import { BulkEditDialog } from "@/components/bulk-edit-dialog";
+import { GroupManagerDialog } from "@/components/group-manager-dialog";
 import { EntryDetail } from "@/components/entry-detail";
 import { EntryDialog } from "@/components/entry-dialog";
 import { OtpRow } from "@/components/otp-row";
@@ -28,6 +36,7 @@ import { ReauthDialog } from "@/components/reauth-dialog";
 import { SettingsPanel } from "@/components/settings-panel";
 import { apiFetch, ApiClientError } from "@/lib/client/api";
 import { decryptVaultItem, encryptVaultItem } from "@/lib/client/crypto";
+import { downloadPlaintextKeys } from "@/lib/client/key-export";
 import { otpTimeRemaining } from "@/lib/client/otp";
 import type { EncryptedItemRecord, VaultItem, VaultPreferences } from "@/lib/shared/types";
 
@@ -48,6 +57,7 @@ interface DecryptedEntry {
 type View = "all" | "favorites" | "recent" | "trash" | `group:${string}`;
 interface ReauthAction {
   title: string;
+  description?: string;
   action: () => Promise<void> | void;
 }
 
@@ -66,6 +76,7 @@ function sortEntries(entries: DecryptedEntry[], mode: VaultPreferences["sortMode
   return [...entries].sort((left, right) => {
     if (mode === "favorite" && left.item.favorite !== right.item.favorite) return left.item.favorite ? -1 : 1;
     if (mode === "recent") return (right.record.lastUsedAt || "").localeCompare(left.record.lastUsedAt || "");
+    if (mode === "manual") return left.record.sortOrder - right.record.sortOrder;
     if (mode === "created") return right.record.createdAt.localeCompare(left.record.createdAt);
     return left.item.issuer.localeCompare(right.item.issuer, "zh-CN", { sensitivity: "base" }) || left.item.accountName.localeCompare(right.item.accountName, "zh-CN");
   });
@@ -85,6 +96,11 @@ export function VaultDashboard({ username, vaultKey, preferences, onPreferencesC
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reauthAction, setReauthAction] = useState<ReauthAction | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkMode, setBulkMode] = useState<"move" | "tags" | null>(null);
+  const [groupManagerOpen, setGroupManagerOpen] = useState(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   const loadEntries = useCallback(async () => {
     setLoading(true);
@@ -131,6 +147,11 @@ export function VaultDashboard({ username, vaultKey, preferences, onPreferencesC
     return () => window.removeEventListener("keydown", shortcut);
   }, []);
 
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+    if (view === "trash") setSelectionMode(false);
+  }, [view]);
   const activeEntries = useMemo(() => entries.filter((entry) => !entry.record.deletedAt), [entries]);
   const trashEntries = useMemo(() => entries.filter((entry) => entry.record.deletedAt), [entries]);
   const groups = useMemo(() => {
@@ -160,6 +181,8 @@ export function VaultDashboard({ username, vaultKey, preferences, onPreferencesC
     }
     return sortEntries(selected, view === "recent" ? "recent" : preferences.sortMode);
   }, [activeEntries, preferences.sortMode, search, tag, trashEntries, view]);
+  const selectedEntries = useMemo(() => activeEntries.filter(({ item }) => selectedIds.has(item.id)), [activeEntries, selectedIds]);
+  const reorderEnabled = view === "all" && !search.trim() && !tag && !selectionMode;
 
   const selected = useMemo(() => entries.find((entry) => entry.item.id === detailId) || null, [detailId, entries]);
   const editing = useMemo(() => entries.find((entry) => entry.item.id === editId)?.item || null, [editId, entries]);
@@ -190,8 +213,36 @@ export function VaultDashboard({ username, vaultKey, preferences, onPreferencesC
     }
   };
 
+  const saveManyItems = async (items: VaultItem[]) => {
+    const encrypted = await Promise.all(items.map((item, index) => encryptVaultItem(vaultKey, item, { sortOrder: records.length + index })));
+    const response = await apiFetch<{ imported: number; skipped: number }>("/api/entries/batch", {
+      method: "POST",
+      body: JSON.stringify({ items: encrypted, strategy: "skip" }),
+    });
+    await loadEntries();
+    toast.success(`已批量导入 ${response.imported} 个验证器`, {
+      description: response.skipped ? `另有 ${response.skipped} 个重复项目被跳过。` : "所有项目均已在浏览器内加密。",
+    });
+  };
+
   const updateItem = async (item: VaultItem) => {
     await saveItem({ ...item, updatedAt: new Date().toISOString() });
+  };
+
+  const replaceManyItems = async (targets: DecryptedEntry[], transform: (item: VaultItem) => VaultItem, message: string) => {
+    const now = new Date().toISOString();
+    const updatedItems = targets.map(({ item }) => transform({ ...item, updatedAt: now }));
+    const encrypted = await Promise.all(updatedItems.map((item) => {
+      const record = targets.find((target) => target.item.id === item.id)!.record;
+      return encryptVaultItem(vaultKey, item, record);
+    }));
+    await apiFetch("/api/entries/batch", {
+      method: "POST",
+      body: JSON.stringify({ items: encrypted, strategy: "replace" }),
+    });
+    await loadEntries();
+    setSelectedIds(new Set());
+    toast.success(message);
   };
 
   const patchRecord = async (id: string, patch: Partial<Pick<EncryptedItemRecord, "deletedAt" | "lastUsedAt" | "sortOrder">>) => {
@@ -203,6 +254,7 @@ export function VaultDashboard({ username, vaultKey, preferences, onPreferencesC
   const copyCode = async (item: VaultItem, code: string) => {
     try {
       await navigator.clipboard.writeText(code);
+      if ("vibrate" in navigator && window.matchMedia("(pointer: coarse)").matches) navigator.vibrate(18);
       const remaining = item.type === "totp" ? otpTimeRemaining(item.period) : null;
       toast.success("验证码已复制", { description: remaining ? `${remaining} 秒后失效` : `HOTP 计数器 ${item.counter}` });
       const lastUsedAt = new Date().toISOString();
@@ -269,7 +321,83 @@ export function VaultDashboard({ username, vaultKey, preferences, onPreferencesC
     });
   };
 
-  const sensitiveAction = (title: string, action: () => Promise<void> | void) => setReauthAction({ title, action });
+  const toggleSelected = (id: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    const visibleIds = visibleEntries.map(({ item }) => item.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      visibleIds.forEach((id) => allSelected ? next.delete(id) : next.add(id));
+      return next;
+    });
+  };
+
+  const applyBulkEdit = async (value: string) => {
+    if (!bulkMode || !selectedEntries.length) return;
+    if (bulkMode === "move") {
+      const group = value.trim().slice(0, 60);
+      await replaceManyItems(selectedEntries, (item) => ({ ...item, group }), `已移动 ${selectedEntries.length} 个验证器`);
+      return;
+    }
+    const additions = value.split(/[,，]/).map((item) => item.trim()).filter(Boolean);
+    await replaceManyItems(
+      selectedEntries,
+      (item) => ({ ...item, tags: [...new Set([...item.tags, ...additions])].slice(0, 10) }),
+      `已为 ${selectedEntries.length} 个验证器添加标签`,
+    );
+  };
+
+  const renameOrMergeGroup = async (source: string, target: string) => {
+    const targets = activeEntries.filter(({ item }) => item.group === source);
+    await replaceManyItems(targets, (item) => ({ ...item, group: target }), `已将“${source}”更新为“${target}”`);
+    if (view === `group:${source}`) setView(`group:${target}`);
+  };
+
+  const exportSelectedKeys = () => {
+    if (!selectedEntries.length) return;
+    setReauthAction({
+      title: `导出 ${selectedEntries.length} 个明文密钥`,
+      description: "导出文件不会加密；任何获得该文件的人都能生成你的验证码。确认后请离线保存并尽快安全删除临时副本。",
+      action: () => {
+        downloadPlaintextKeys(selectedEntries.map(({ item }) => item));
+        toast.warning("明文密钥文件已导出", { description: "该文件未加密，请立即转移到安全位置。" });
+      },
+    });
+  };
+
+  const reorderItem = async (sourceId: string, targetId: string) => {
+    if (sourceId === targetId || !reorderEnabled) return;
+    const ordered = [...visibleEntries];
+    const sourceIndex = ordered.findIndex(({ item }) => item.id === sourceId);
+    const targetIndex = ordered.findIndex(({ item }) => item.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const [moved] = ordered.splice(sourceIndex, 1);
+    ordered.splice(targetIndex, 0, moved);
+    try {
+      await apiFetch("/api/entries/reorder", { method: "POST", body: JSON.stringify({ ids: ordered.map(({ item }) => item.id) }) });
+      const nextPreferences = { ...preferences, sortMode: "manual" as const };
+      const response = await apiFetch<{ preferences: VaultPreferences }>("/api/settings", { method: "PUT", body: JSON.stringify(nextPreferences) });
+      const order = new Map(ordered.map(({ item }, index) => [item.id, index]));
+      setRecords((current) => current.map((record) => order.has(record.id) ? { ...record, sortOrder: order.get(record.id)! } : record));
+      setEntries((current) => current.map((entry) => order.has(entry.item.id) ? { ...entry, record: { ...entry.record, sortOrder: order.get(entry.item.id)! } } : entry));
+      onPreferencesChange(response.preferences);
+      toast.success("手动顺序已保存");
+    } catch (caught) {
+      toast.error("无法保存拖拽顺序", { description: caught instanceof Error ? caught.message : "请稍后重试" });
+    } finally {
+      setDraggingId(null);
+    }
+  };
+
+  const sensitiveAction = (title: string, action: () => Promise<void> | void, description?: string) => setReauthAction({ title, action, description });
 
   return (
     <main className="vault-shell">
@@ -322,11 +450,38 @@ export function VaultDashboard({ username, vaultKey, preferences, onPreferencesC
             <div className="workspace-heading-meta"><span><ShieldCheck size={15} /> 浏览器内解密</span><span>{visibleEntries.length.toString().padStart(2, "0")} ITEMS</span></div>
           </header>
 
+          {view !== "trash" && (
+            <div className="list-tools">
+              <button
+                type="button"
+                className={selectionMode ? "active" : ""}
+                onClick={() => { setSelectionMode((current) => !current); setSelectedIds(new Set()); }}
+              ><CheckSquare2 size={15} />{selectionMode ? "退出批量" : "批量管理"}</button>
+              <button type="button" onClick={() => setGroupManagerOpen(true)} disabled={!groups.length}><FolderCog size={15} />管理分组</button>
+              {reorderEnabled && <span>拖动左侧手柄可调整顺序</span>}
+            </div>
+          )}
+
+          {selectionMode && view !== "trash" && (
+            <div className="bulk-action-bar">
+              <button type="button" className="bulk-select-all" onClick={toggleSelectAllVisible}>
+                <CheckSquare2 size={17} />选择当前 {visibleEntries.length} 项
+              </button>
+              <strong>已选择 {selectedEntries.length} 项</strong>
+              <div>
+                <button type="button" disabled={!selectedEntries.length} onClick={() => setBulkMode("move")}><FolderInput size={16} />移动分组</button>
+                <button type="button" disabled={!selectedEntries.length} onClick={() => setBulkMode("tags")}><Tags size={16} />添加标签</button>
+                <button type="button" disabled={!selectedEntries.length} onClick={exportSelectedKeys}><Download size={16} />导出密钥</button>
+                <button type="button" className="icon-button" onClick={() => { setSelectionMode(false); setSelectedIds(new Set()); }} aria-label="退出批量管理"><X size={17} /></button>
+              </div>
+            </div>
+          )}
+
           {tags.length > 0 && view !== "trash" && (
             <div className="filter-strip">
               <button type="button" className={!tag ? "active" : ""} onClick={() => setTag(null)}>全部标签</button>
               {tags.map(([value, count]) => <button type="button" key={value} className={tag === value ? "active" : ""} onClick={() => setTag(tag === value ? null : value)}>#{value}<span>{count}</span></button>)}
-              <div className="sort-readout"><ChevronsUpDown size={14} />{preferences.sortMode === "favorite" ? "收藏优先" : preferences.sortMode === "name" ? "按名称" : preferences.sortMode === "recent" ? "最近使用" : "最近添加"}</div>
+              <div className="sort-readout"><ChevronsUpDown size={14} />{preferences.sortMode === "favorite" ? "收藏优先" : preferences.sortMode === "name" ? "按名称" : preferences.sortMode === "recent" ? "最近使用" : preferences.sortMode === "manual" ? "手动顺序" : "最近添加"}</div>
             </div>
           )}
 
@@ -360,6 +515,23 @@ export function VaultDashboard({ username, vaultKey, preferences, onPreferencesC
                   onEdit={() => { setEditId(item.id); setEntryDialogOpen(true); }}
                   onDelete={() => void moveToTrash(item)}
                   onNextHotp={() => void nextHotp(item)}
+                  selectionMode={selectionMode}
+                  selected={selectedIds.has(item.id)}
+                  onSelect={() => toggleSelected(item.id)}
+                  dragEnabled={reorderEnabled}
+                  dragging={draggingId === item.id}
+                  onDragStart={(event) => {
+                    setDraggingId(item.id);
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", item.id);
+                  }}
+                  onDragOver={(event) => { if (reorderEnabled) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const sourceId = event.dataTransfer.getData("text/plain") || draggingId;
+                    if (sourceId) void reorderItem(sourceId, item.id);
+                  }}
+                  onDragEnd={() => setDraggingId(null)}
                 />
               ))}
             </div>
@@ -381,6 +553,7 @@ export function VaultDashboard({ username, vaultKey, preferences, onPreferencesC
         existingItems={activeEntries.map(({ item }) => item)}
         onClose={() => { setEntryDialogOpen(false); setEditId(null); }}
         onSave={saveItem}
+        onSaveMany={saveManyItems}
       />
 
       <EntryDetail
@@ -409,9 +582,26 @@ export function VaultDashboard({ username, vaultKey, preferences, onPreferencesC
         onSensitiveAction={sensitiveAction}
       />
 
+      <BulkEditDialog
+        open={Boolean(bulkMode)}
+        mode={bulkMode || "move"}
+        selectedCount={selectedEntries.length}
+        groups={groups.map(([group]) => group)}
+        onClose={() => setBulkMode(null)}
+        onApply={applyBulkEdit}
+      />
+
+      <GroupManagerDialog
+        open={groupManagerOpen}
+        groups={groups}
+        onClose={() => setGroupManagerOpen(false)}
+        onApply={renameOrMergeGroup}
+      />
+
       <ReauthDialog
         open={Boolean(reauthAction)}
         title={reauthAction?.title || "确认主密码"}
+        description={reauthAction?.description}
         onClose={() => setReauthAction(null)}
         onVerified={async () => { await reauthAction?.action(); }}
       />

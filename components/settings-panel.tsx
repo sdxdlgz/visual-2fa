@@ -243,7 +243,7 @@ export function SettingsPanel({
                 <label>
                   <span>默认排序</span>
                   <select value={draft.sortMode} onChange={(event) => setDraft({ ...draft, sortMode: event.target.value as VaultPreferences["sortMode"] })}>
-                    <option value="favorite">收藏优先 + 名称</option><option value="name">名称</option><option value="recent">最近使用</option><option value="created">最近添加</option>
+                    <option value="favorite">收藏优先 + 名称</option><option value="name">名称</option><option value="recent">最近使用</option><option value="created">最近添加</option><option value="manual">手动顺序</option>
                   </select>
                 </label>
               </div>

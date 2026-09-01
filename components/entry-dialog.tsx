@@ -9,6 +9,8 @@ import {
   FileImage,
   Keyboard,
   Link2,
+  Layers3,
+  ListChecks,
   LoaderCircle,
   ScanLine,
   ShieldCheck,
@@ -16,6 +18,7 @@ import {
   Upload,
 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
+import { decodeGoogleMigrationUri } from "@/lib/client/google-migration";
 import { generateOtp, isValidBase32, normalizeSecret, otpFingerprint, parseOtpAuthUri, type ParsedOtpAuth } from "@/lib/client/otp";
 import type { OtpAlgorithm, OtpType, VaultItem } from "@/lib/shared/types";
 
@@ -25,9 +28,10 @@ interface EntryDialogProps {
   existingItems: VaultItem[];
   onClose: () => void;
   onSave: (item: VaultItem) => Promise<void>;
+  onSaveMany?: (items: VaultItem[]) => Promise<void>;
 }
 
-type ImportMethod = "scan" | "uri" | "manual";
+type ImportMethod = "scan" | "uri" | "manual" | "migration";
 
 interface FormState {
   id: string;
@@ -45,6 +49,13 @@ interface FormState {
   favorite: boolean;
   color: string;
   createdAt: string;
+}
+
+interface MigrationCollection {
+  batchId: number;
+  batchSize: number;
+  parts: Map<number, VaultItem[]>;
+  skippedByPart: Map<number, number>;
 }
 
 const colors = ["#78D5C7", "#5FA8D3", "#D9B26F", "#D4816F", "#9C8BD3", "#82A36F"];
@@ -87,7 +98,7 @@ function applyParsed(current: FormState, parsed: ParsedOtpAuth): FormState {
   };
 }
 
-export function EntryDialog({ open, initial, existingItems, onClose, onSave }: EntryDialogProps) {
+export function EntryDialog({ open, initial, existingItems, onClose, onSave, onSaveMany }: EntryDialogProps) {
   const [method, setMethod] = useState<ImportMethod>(initial ? "manual" : "scan");
   const [form, setForm] = useState<FormState>(() => (initial ? fromItem(initial) : emptyForm()));
   const [uri, setUri] = useState("");
@@ -98,6 +109,11 @@ export function EntryDialog({ open, initial, existingItems, onClose, onSave }: E
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<{ stop: () => void } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const migrationRef = useRef<MigrationCollection | null>(null);
+  const [migrationCollection, setMigrationCollection] = useState<MigrationCollection | null>(null);
+  const [migrationSelected, setMigrationSelected] = useState<Set<string>>(new Set());
+  const [migrationGroup, setMigrationGroup] = useState("");
+  const [migrationTags, setMigrationTags] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -106,6 +122,11 @@ export function EntryDialog({ open, initial, existingItems, onClose, onSave }: E
     setUri("");
     setError("");
     setCameraActive(false);
+    migrationRef.current = null;
+    setMigrationCollection(null);
+    setMigrationSelected(new Set());
+    setMigrationGroup("");
+    setMigrationTags("");
   }, [initial, open]);
 
   useEffect(() => {
@@ -145,6 +166,20 @@ export function EntryDialog({ open, initial, existingItems, onClose, onSave }: E
     }
   }, [previewItem]);
 
+
+  const migrationItems = useMemo(() => {
+    if (!migrationCollection) return [];
+    const unique = new Map<string, VaultItem>();
+    [...migrationCollection.parts.entries()]
+      .sort(([left], [right]) => left - right)
+      .flatMap(([, items]) => items)
+      .forEach((item) => unique.set(otpFingerprint(item), item));
+    return [...unique.values()];
+  }, [migrationCollection]);
+  const migrationSkipped = useMemo(
+    () => migrationCollection ? [...migrationCollection.skippedByPart.values()].reduce((sum, value) => sum + value, 0) : 0,
+    [migrationCollection],
+  );
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
     setError("");
@@ -152,10 +187,44 @@ export function EntryDialog({ open, initial, existingItems, onClose, onSave }: E
 
   const acceptDecoded = (value: string) => {
     try {
-      const parsed = parseOtpAuthUri(value);
-      setForm((current) => applyParsed(current, parsed));
-      setUri(value);
-      setMethod("manual");
+      if (value.trim().toLowerCase().startsWith("otpauth-migration://")) {
+        const part = decodeGoogleMigrationUri(value);
+        const current = migrationRef.current;
+        const compatible = current && current.batchId === part.batchId && current.batchSize === part.batchSize;
+        const parts = new Map(compatible ? current.parts : []);
+        const skippedByPart = new Map(compatible ? current.skippedByPart : []);
+        const createdAt = new Date().toISOString();
+        parts.set(part.batchIndex, part.items.map((item, index) => ({
+          ...item,
+          id: crypto.randomUUID(),
+          notes: "",
+          group: "",
+          tags: [],
+          favorite: false,
+          color: colors[(part.batchIndex * 7 + index) % colors.length],
+          createdAt,
+          updatedAt: createdAt,
+        })));
+        skippedByPart.set(part.batchIndex, part.skipped);
+        const next: MigrationCollection = {
+          batchId: part.batchId,
+          batchSize: part.batchSize,
+          parts,
+          skippedByPart,
+        };
+        migrationRef.current = next;
+        setMigrationCollection(next);
+        const uniqueItems = new Map<string, VaultItem>();
+        const existingFingerprints = new Set(existingItems.map(otpFingerprint));
+        [...parts.values()].flat().forEach((item) => uniqueItems.set(otpFingerprint(item), item));
+        setMigrationSelected(new Set([...uniqueItems.values()].filter((item) => !existingFingerprints.has(otpFingerprint(item))).map((item) => item.id)));
+        setMethod("migration");
+      } else {
+        const parsed = parseOtpAuthUri(value);
+        setForm((current) => applyParsed(current, parsed));
+        setUri(value);
+        setMethod("manual");
+      }
       setError("");
       setCameraActive(false);
       controlsRef.current?.stop();
@@ -237,6 +306,38 @@ export function EntryDialog({ open, initial, existingItems, onClose, onSave }: E
     }
   };
 
+  const importMigration = async () => {
+    if (!migrationCollection || migrationCollection.parts.size < migrationCollection.batchSize) {
+      setError("请先扫描该批次中的全部迁移二维码");
+      return;
+    }
+    const existingFingerprints = new Set(existingItems.map(otpFingerprint));
+    const rawTags = migrationTags.split(/[,，]/).map((value) => value.trim()).filter(Boolean);
+    if (rawTags.some((tag) => tag.length > 30)) {
+      setError("每个标签最多 30 个字符");
+      return;
+    }
+    const tags = rawTags.slice(0, 10);
+    const chosen = migrationItems
+      .filter((item) => migrationSelected.has(item.id) && !existingFingerprints.has(otpFingerprint(item)))
+      .map((item) => ({ ...item, group: migrationGroup.trim().slice(0, 60), tags }));
+    if (!chosen.length) {
+      setError("没有可导入的项目：请至少选择一个非重复验证器");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      if (onSaveMany) await onSaveMany(chosen);
+      else for (const item of chosen) await onSave(item);
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "无法导入迁移项目");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Modal
       open={open}
@@ -294,7 +395,7 @@ export function EntryDialog({ open, initial, existingItems, onClose, onSave }: E
                 {scanning ? <LoaderCircle className="spin" size={34} /> : <FileImage size={34} />}
               </div>
               <h3>{scanning ? "正在本地识别…" : "拖入、粘贴或选择二维码图片"}</h3>
-              <p>图片只在当前浏览器中解析，不会上传到服务器。</p>
+              <p>图片只在浏览器内解析；支持标准及 Google Authenticator 批量迁移二维码。</p>
               <span className="secondary-button"><Upload size={16} /> 选择图片</span>
               <input
                 ref={fileRef}
@@ -338,6 +439,69 @@ export function EntryDialog({ open, initial, existingItems, onClose, onSave }: E
           <button type="button" className="primary-button" onClick={() => acceptDecoded(uri)} disabled={!uri.trim()}>
             解析并预览 <Check size={17} />
           </button>
+        </section>
+      )}
+
+      {method === "migration" && migrationCollection && (
+        <section className="migration-stage">
+          <div className="migration-heading">
+            <span className="migration-icon"><Layers3 size={25} /></span>
+            <div>
+              <p className="eyebrow">GOOGLE AUTHENTICATOR MIGRATION</p>
+              <h3>检测到 {migrationItems.length} 个验证器</h3>
+              <p>已扫描 {migrationCollection.parts.size} / {migrationCollection.batchSize} 张迁移二维码</p>
+            </div>
+          </div>
+          <div className="migration-progress" aria-label="迁移二维码扫描进度">
+            {Array.from({ length: migrationCollection.batchSize }, (_, index) => (
+              <span key={index} className={migrationCollection.parts.has(index) ? "complete" : ""}>
+                {migrationCollection.parts.has(index) ? <Check size={13} /> : index + 1}
+              </span>
+            ))}
+          </div>
+          {migrationSkipped > 0 && <div className="form-error">已跳过 {migrationSkipped} 个不支持或损坏的迁移项目。</div>}
+          <div className="migration-list" role="group" aria-label="选择要导入的验证器">
+            {migrationItems.map((item) => {
+              const duplicate = existingItems.some((existing) => otpFingerprint(existing) === otpFingerprint(item));
+              return (
+                <label key={item.id} className={duplicate ? "duplicate" : ""}>
+                  <input
+                    type="checkbox"
+                    checked={!duplicate && migrationSelected.has(item.id)}
+                    disabled={duplicate}
+                    onChange={(event) => setMigrationSelected((current) => {
+                      const next = new Set(current);
+                      if (event.target.checked) next.add(item.id);
+                      else next.delete(item.id);
+                      return next;
+                    })}
+                  />
+                  <span className="issuer-tile" style={{ "--issuer-color": item.color } as React.CSSProperties}>{item.issuer[0]?.toUpperCase() || "?"}</span>
+                  <span><strong>{item.issuer}</strong><small>{item.accountName || "无账户名称"}</small></span>
+                  <em>{duplicate ? "已存在" : item.type.toUpperCase()}</em>
+                </label>
+              );
+            })}
+          </div>
+          <div className="form-grid migration-defaults">
+            <label><span className="field-label">统一分组（可选）</span><input value={migrationGroup} onChange={(event) => setMigrationGroup(event.target.value)} maxLength={60} placeholder="例如：从 Google 导入" /></label>
+            <label><span className="field-label">统一标签（可选）</span><input value={migrationTags} onChange={(event) => setMigrationTags(event.target.value)} maxLength={320} placeholder="迁移, 常用" /></label>
+          </div>
+          {error && <div className="form-error" role="alert">{error}</div>}
+          <footer className="modal-actions">
+            {migrationCollection.parts.size < migrationCollection.batchSize && (
+              <button type="button" className="secondary-button" onClick={() => { setMethod("scan"); setError(""); }}><ScanLine size={17} />继续扫描下一张</button>
+            )}
+            <button
+              type="button"
+              className="primary-button"
+              disabled={busy || migrationCollection.parts.size < migrationCollection.batchSize || migrationSelected.size === 0}
+              onClick={() => void importMigration()}
+            >
+              {busy ? <LoaderCircle className="spin" size={17} /> : <ListChecks size={17} />}
+              {busy ? "正在批量加密…" : `导入所选 ${migrationSelected.size} 项`}
+            </button>
+          </footer>
         </section>
       )}
 

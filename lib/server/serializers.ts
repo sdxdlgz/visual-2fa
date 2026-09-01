@@ -50,7 +50,7 @@ export function serializePreferences(row?: SettingsRow): VaultPreferences {
     backgroundLockMinutes: Number(row.background_lock_minutes),
     clipboardClearSeconds: Number(row.clipboard_clear_seconds),
     viewMode: row.view_mode === "comfortable" ? "comfortable" : "compact",
-    sortMode: ["favorite", "name", "recent", "created"].includes(row.sort_mode)
+    sortMode: ["favorite", "name", "recent", "created", "manual"].includes(row.sort_mode)
       ? (row.sort_mode as VaultPreferences["sortMode"])
       : "favorite",
   };

@@ -85,7 +85,7 @@ export const preferencesSchema = z.object({
   backgroundLockMinutes: z.number().int().min(0).max(60),
   clipboardClearSeconds: z.number().int().min(0).max(120),
   viewMode: z.enum(["compact", "comfortable"]),
-  sortMode: z.enum(["favorite", "name", "recent", "created"]),
+  sortMode: z.enum(["favorite", "name", "recent", "created", "manual"]),
 });
 
 export const setupInputSchema = z.object({

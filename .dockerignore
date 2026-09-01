@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.github
+data
+coverage
+.npm-cache
+*.log
+.env*
+!.env.example
+task_plan.md
+findings.md
+progress.md

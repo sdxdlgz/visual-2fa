@@ -1,76 +1,166 @@
 # Visual 2FA
 
-一个安全优先、可自托管的网页版 2FA 验证器保险库。支持 Docker/VPS 上的 SQLite，也支持 Vercel/Serverless 上的 PostgreSQL。
+安全优先、可自托管的网页版 2FA 验证器保险库。
 
-> Visual 2FA 适合管理**个人** TOTP/HOTP 验证器。首次创建所有者后，注册入口会永久关闭。
+Visual 2FA 面向个人使用：首次创建所有者后即关闭注册；验证码密钥、服务名称、账户、备注、分组和标签均在浏览器中加密后再持久化。
 
-## 功能
+- Docker / VPS：SQLite 持久卷
+- Vercel / Serverless：PostgreSQL
+- 桌面与移动端响应式界面
+- 无统计、广告、远程字体或第三方脚本
 
-- 🔐 **单用户认证**：scrypt 密码哈希、数据库会话、HttpOnly / SameSite Cookie、登录限速
-- 🧰 **浏览器端加密保险库**：每条验证器资料都以 AES-256-GCM 密文持久化
-- 📷 **多种导入方式**：摄像头、二维码图片、`otpauth://`、Base32 密钥及 Google Authenticator 批量迁移二维码
-- ⏱️ **完整 OTP 支持**：TOTP / HOTP、SHA-1 / SHA-256 / SHA-512、6–8 位、自定义周期与计数器
-- 🗂️ **完整整理能力**：分组/标签、批量移动与加标签、分组重命名/合并、拖拽排序、收藏、搜索和筛选
-- 🗑️ **回收站**：软删除、撤销、恢复、重新验证后永久删除
-- 📦 **加密备份**：独立备份密码、`.v2fa` 导入导出、重复项处理
-- 🔑 **便携密钥导出**：重新验证后导出所选项目的 Base32 密钥及 `otpauth` URI（明文高风险操作）
-- 📳 **移动端反馈**：复制成功时在支持的手机上提供轻微震动
-- 🛡️ **敏感操作保护**：显示密钥、迁移二维码、清空回收站、注销其他设备前重新验证
-- 📱 **响应式界面**：桌面高密度仪表盘、移动底部导航、PWA manifest
-- 🗄️ **双数据库**：SQLite 持久卷 / PostgreSQL 连接 URL 自动识别
-
-## 安全架构
-
-1. 浏览器生成随机的 256-bit 保险库数据密钥。
-2. 主密码通过 PBKDF2-SHA-256（600,000 次）派生包装密钥。
-3. 包装密钥使用 AES-256-GCM 加密保险库数据密钥。
-4. issuer、账户名、OTP secret、备注、分组和标签作为一个整体在浏览器内加密。
-5. 服务端只持久化密文、IV、被包装的数据密钥和必要的记录元数据。
-6. OTP 在已解锁的浏览器中生成，正常使用时服务端不会收到明文 OTP secret。
-
-认证密码会通过 HTTPS 发送给服务端并用 scrypt 校验。因此这是一套**客户端加密、抵御数据库单独泄露**的设计，不应被理解为能抵御恶意服务器的严格“零知识”系统。控制服务器或前端 JavaScript 的攻击者、恶意浏览器扩展和已感染设备仍可能窃取解锁后的资料。完整边界见 [SECURITY.md](SECURITY.md)。
+> [!IMPORTANT]
+> 忘记主密码后无法从数据库恢复保险库。完成首次设置后，请立即导出并验证一份加密备份。
 
 ## 快速开始
 
-要求：Node.js `>= 20.19`。
+### 方式一：Docker（推荐）
 
 ```bash
-git clone git@github.com:sdxdlgz/visual-2fa.git
+git clone https://github.com/sdxdlgz/visual-2fa.git
+cd visual-2fa
+cp .env.example .env
+docker compose up -d --build
+```
+
+打开 <http://localhost:3000>，创建第一个所有者账户。
+
+如果系统仍使用 Compose v1，把 `docker compose` 改为 `docker-compose`。
+
+已配置 GitHub SSH Key 时，也可以使用 `git@github.com:sdxdlgz/visual-2fa.git`。
+
+### 方式二：本地开发
+
+要求 Node.js `>= 20.19`。
+
+```bash
+git clone https://github.com/sdxdlgz/visual-2fa.git
 cd visual-2fa
 cp .env.example .env.local
 npm ci
 npm run dev
 ```
 
-打开 <http://localhost:3000>，创建第一个所有者账户。创建完成后不再提供注册。
+打开 <http://localhost:3000>。
 
-首次进入后建议立即在 **设置 → 备份与恢复** 中生成一份加密备份，并实际验证能够导入。
+### 首次使用检查清单（务必完成）
 
-## Docker / VPS（SQLite）
+1. 创建唯一的所有者账户和足够长的主密码。
+2. 使用二维码、迁移二维码、`otpauth://` 或 Base32 密钥导入验证器。
+3. 在 **设置 → 备份与恢复** 中导出 `.v2fa` 加密备份。
+4. 重新导入一次备份，确认文件和备份密码可用。
+5. 正式部署时启用 HTTPS，并正确配置 `APP_ORIGIN`。
 
-```bash
-cp .env.example .env
-# 正式域名必须改为准确的 HTTPS origin：
-# APP_ORIGIN=https://2fa.example.com
+## 功能一览
 
-docker compose up -d --build
-```
+| 能力 | 支持内容 |
+|---|---|
+| 验证器 | TOTP、HOTP、SHA-1 / SHA-256 / SHA-512、6–8 位、自定义周期与计数器 |
+| 导入 | 摄像头、二维码图片、粘贴图片、`otpauth://`、Base32 密钥 |
+| Google 迁移 | `otpauth-migration://` 单张多账户及多张连续批次，带扫描进度和重复检测 |
+| 整理 | 分组、多个标签、备注、收藏、搜索、筛选、最近使用 |
+| 批量操作 | 批量移动分组、添加标签、分组重命名与合并 |
+| 排序 | 收藏/名称/最近使用/最近添加排序，以及可持久化的拖拽手动排序 |
+| 删除 | 回收站、撤销、恢复、重新验证后永久删除 |
+| 备份 | 独立密码保护的 `.v2fa` 加密备份、合并恢复、冲突处理 |
+| 迁出 | 重新验证后导出所选项目的 Base32 secret 与 `otpauth` URI |
+| 会话 | 自动锁定、后台锁定、活动会话、注销其他设备、修改主密码 |
+| 移动端 | 底部导航、全屏扫描/详情、复制成功轻微震动 |
 
-默认监听 `3000`，SQLite 数据保存在 Docker volume `visual-2fa-data`。修改端口：
+## 日常使用
+
+### 添加验证器
+
+点击 **添加验证器**，可以：
+
+1. 上传、拖入或粘贴二维码图片；
+2. 使用摄像头扫描；
+3. 粘贴标准 `otpauth://totp/...` 或 `otpauth://hotp/...`；
+4. 手工输入 Base32 密钥和高级 OTP 参数。
+
+二维码原图不会上传到服务器，只在当前浏览器中解析。摄像头功能需要 HTTPS 或 localhost。
+
+### 从 Google Authenticator 批量迁移
+
+在 Google Authenticator 中选择 **转移账号 → 导出账号**，然后在 Visual 2FA 的二维码导入界面扫描或上传迁移二维码。
+
+- 一张二维码可以包含多个账户；
+- 账户较多时 Google 会生成连续多张二维码；
+- Visual 2FA 会显示 `已扫描 n / m`，收齐全部批次后再导入；
+- 重复密钥、损坏项目和不支持的算法不会被静默导入。
+
+### 批量整理与拖拽排序
+
+在验证码页点击 **批量管理**：
+
+- 选择当前结果或逐项选择；
+- 批量移动到目标分组；
+- 把新标签合并到现有标签；
+- 导出所选项目的明文密钥。
+
+点击 **管理分组** 可重命名分组；如果目标名称已经存在，则把两个分组合并。
+
+退出批量模式后，可以拖动每行左侧的手柄调整顺序。首次拖拽会自动切换为“手动顺序”，并持久化到数据库。
+
+### TOTP 与 HOTP 的区别
+
+- **TOTP** 按时间刷新，绝大多数网站使用这种方式；
+- **HOTP** 按计数器生成，每次使用后客户端和服务端计数器都要同步递增。
+
+Visual 2FA 对 HOTP 保留独立的“复制”和“生成下一组”操作，避免无意递增造成计数器不同步。
+
+## 备份、恢复与密钥导出
+
+| 功能 | 是否加密 | 适用场景 |
+|---|---:|---|
+| `.v2fa` 备份 | 是 | 日常备份、灾难恢复、迁移到另一个 Visual 2FA |
+| 明文密钥 JSON | 否 | 临时迁移到其他受信任验证器 |
+| 单项迁移二维码 | 否 | 把一个验证器导入其他设备或应用 |
+
+### 加密备份
+
+- 使用独立且足够长的备份密码；
+- 可选择是否包含回收站；
+- 导入支持跳过重复项或覆盖同 ID 项；
+- `.v2fa` 虽然已加密，仍应作为高价值文件离线保存。
+
+### 明文密钥导出
+
+进入 **批量管理 → 导出密钥**，重新输入主密码后会下载 JSON 文件，其中包含 Base32 secret 和 `otpauth` URI。
+
+> [!WARNING]
+> 明文密钥文件本身不加密。任何获得该文件的人都可以生成你的验证码。仅用于迁移，并在完成后安全删除。
+
+## 部署选择
+
+| 场景 | 数据库 | 推荐方式 |
+|---|---|---|
+| 个人服务器、NAS、VPS | SQLite | Docker Compose + 持久卷 |
+| Vercel / Serverless | PostgreSQL | Neon、Supabase、Vercel Postgres 等 pooled URL |
+| 本地开发 | SQLite | `npm run dev` |
+
+### Docker / VPS
+
+默认配置：
+
+- Web 端口：`3000`
+- 数据库：`file:./data/visual-2fa.db`
+- Docker volume：`visual-2fa-data`
+
+修改公开端口：
 
 ```bash
 VISUAL_2FA_PORT=8080 docker compose up -d
 ```
 
-### 正式部署要求
+正式环境必须：
 
-- 必须放在 Caddy、Nginx、Traefik 或 Cloudflare Tunnel 等 HTTPS 反向代理后。
-- 代理应传递准确的 `Host`、`X-Forwarded-Host` 和 `X-Forwarded-Proto`。
-- `APP_ORIGIN` 必须与浏览器中的公开 origin **完全一致**，例如 `https://2fa.example.com`，不要带路径或结尾 `/`。
-- 不要直接把未加密的 HTTP 服务暴露到公网。
-- 定期备份 Docker volume，同时保留应用内导出的 `.v2fa` 离线备份。
+1. 放在 Caddy、Nginx、Traefik 或 Cloudflare Tunnel 等 HTTPS 反向代理后；
+2. 传递正确的 `Host`、`X-Forwarded-Host` 和 `X-Forwarded-Proto`；
+3. 把 `APP_ORIGIN` 设置为浏览器实际访问的 origin，例如 `https://2fa.example.com`；
+4. 至少保留并验证 `.v2fa` 离线备份；建议再配置 Docker volume 快照作为第二层恢复手段。
 
-示例 Caddyfile：
+Caddy 示例：
 
 ```caddyfile
 2fa.example.com {
@@ -78,9 +168,9 @@ VISUAL_2FA_PORT=8080 docker compose up -d
 }
 ```
 
-## Vercel / Serverless（PostgreSQL）
+### Vercel / Serverless
 
-SQLite 文件系统不适用于 Vercel。请创建 Neon、Supabase、Vercel Postgres 或其他兼容 PostgreSQL 数据库，并配置：
+Vercel 的文件系统不适合持久化 SQLite，请使用 PostgreSQL：
 
 ```dotenv
 DATABASE_URL=postgresql://user:password@host:5432/visual2fa?sslmode=require
@@ -88,75 +178,168 @@ APP_ORIGIN=https://your-project.vercel.app
 SESSION_DAYS=7
 ```
 
-然后把本仓库导入 Vercel。首次请求会自动创建表；数据库账户必须在初始化时拥有 `CREATE TABLE` 和 `CREATE INDEX` 权限。建议使用服务商提供的 **pooled connection URL**。
+首次请求会自动创建表。数据库账户在初始化时需要 `CREATE TABLE` 和 `CREATE INDEX` 权限。请优先使用数据库服务商提供的 pooled connection URL。
 
-自定义域名启用后，记得把 `APP_ORIGIN` 更新为最终 HTTPS 域名并重新部署。
+绑定自定义域名后，需要同步更新 `APP_ORIGIN` 并重新部署。
 
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `DATABASE_URL` | `file:./data/visual-2fa.db` | `file:` 使用 SQLite；`postgres://` / `postgresql://` 使用 PostgreSQL |
-| `APP_ORIGIN` | 从请求推断 | 正式环境推荐显式配置；用于严格同源写请求校验 |
+| `APP_ORIGIN` | 从请求推断 | 正式环境建议显式配置；必须是不带路径和结尾 `/` 的完整 origin |
 | `SESSION_DAYS` | `7` | 会话有效天数，范围 1–30 |
-| `DATABASE_POOL_SIZE` | `5` | PostgreSQL 每个实例的最大连接数 |
+| `DATABASE_POOL_SIZE` | `5` | 每个应用实例的 PostgreSQL 最大连接数 |
+| `VISUAL_2FA_PORT` | `3000` | Docker Compose 对外端口 |
 
-## 使用说明
+## 安全模型
 
-### 导入验证器
+```text
+主密码 ──HTTPS──> 服务端 scrypt 校验
+   │
+   └─浏览器 PBKDF2──> 包装密钥 ──AES-GCM 解包──> 随机保险库密钥
+                                                    │
+OTP secret、账户、备注、分组、标签 ──AES-GCM────────┘
+                                                    │
+                                                    └──> vault_items：密文 + 最小记录元数据
+服务端认证与会话 ───────────────────────────────────────────> users / sessions 等表
+```
 
-点击 **添加验证器**，选择：
+- 浏览器生成随机 256-bit 保险库密钥；
+- 主密码经 PBKDF2-SHA-256（600,000 次）派生包装密钥；
+- 每条验证器资料使用 AES-256-GCM 加密；
+- `vault_items` 的敏感内容位于密文中，但数据库仍会保存 ID、时间戳、删除状态、排序等最小元数据；
+- OTP 在解锁后的浏览器中生成，正常使用时服务端不会收到明文 OTP secret；
+- 登录密码通过 HTTPS 发送给服务端，并使用 scrypt 验证；
+- 会话使用随机 token，数据库只保存 token 的 SHA-256 指纹；
+- 写请求执行同源检查，页面脚本使用逐请求 CSP nonce。
 
-1. 上传/拖入/粘贴二维码图片；
-2. 使用摄像头扫描（浏览器要求 HTTPS 或 localhost）；
-3. 粘贴标准 `otpauth://totp/...` 或 `otpauth://hotp/...`；
-4. 手工输入 Base32 密钥和高级 OTP 参数。
+这是一套**客户端加密、抵御数据库单独泄露**的设计，不是能抵御恶意服务器的严格零知识系统。它不能防御：
 
-二维码图片只在浏览器内解析，不会上传原图。Google Authenticator 的 `otpauth-migration://` 批量迁移支持单张和多张连续批次；应用会显示扫描进度，收齐全部二维码后再批量加密导入。
+- 被控制的浏览器、设备或恶意扩展；
+- XSS 或被替换的前端 JavaScript；
+- 弱主密码或已泄露主密码；
+- 未启用 HTTPS 时的流量劫持；
+- 同时遗失主密码和所有加密备份。
 
-### 备份与恢复
+完整边界及漏洞报告方式见 [SECURITY.md](SECURITY.md)。
 
-- 导出时使用独立且足够长的备份密码。
-- `.v2fa` 文件仍包含高价值密文，应离线保存。
-- 遗忘主密码后无法从数据库恢复内容；可以创建新保险库，再用备份文件和备份密码导入。
-- 导入支持“跳过重复项”或“覆盖同 ID 项”。重复密钥不会被无提示复制。
+## 更新与数据维护
 
-### 明文密钥导出
+### 更新 Docker 部署
 
-进入“批量管理”，选择项目后点击“导出密钥”。该操作必须重新输入主密码，生成的 JSON 包含 Base32 secret 和 `otpauth` URI，**文件本身不加密**。只用于迁移到其他受信任验证器，并应在完成后安全删除。
+更新前先下载一份最新 `.v2fa` 备份，然后执行：
 
-### 剪贴板
+```bash
+git pull
+docker compose up -d --build
+```
 
-应用可以在设定时间后尝试清除刚复制的验证码，但浏览器和操作系统可能拒绝后台读取/覆盖剪贴板。这一功能是尽力而为，不应视为安全保证。
+更新后：
+
+1. 检查部署地址的 `/api/health`；
+2. 实际解锁保险库；
+3. 验证至少一个验证码；
+4. 再生成一份新的 `.v2fa` 备份。
+
+### 备份 SQLite / Docker volume
+
+`.v2fa` 是首选的可移植恢复方式。若还要制作原始 volume 快照，应先暂停应用写入：
+
+```bash
+docker compose stop visual-2fa
+docker volume ls | grep visual-2fa
+```
+
+确认实际 volume 名称后，可使用 Docker/NAS 的 volume 快照工具。下面是一个需要替换 `<volume-name>` 的示例：
+
+```bash
+docker run --rm \
+  -v <volume-name>:/data:ro \
+  -v "$PWD":/backup \
+  alpine sh -c 'tar czf /backup/visual-2fa-volume.tgz -C /data .'
+docker compose start visual-2fa
+```
+
+不要在服务持续写入时只复制主 `.db` 文件。SQLite 的 `-wal` 和 `-shm` 文件也是数据库状态的一部分。
+
+### 备份 PostgreSQL / Vercel
+
+除 `.v2fa` 外，建议使用数据库服务商的自动备份，或定期执行：
+
+```bash
+pg_dump --format=custom "$DATABASE_URL" > visual-2fa-postgres.dump
+```
+
+恢复数据库快照时应使用新的空数据库并通过 `pg_restore` 恢复，先验证应用和条目数量，再切换生产连接。不要直接覆盖仍在提供服务的数据库。
+
+Vercel 更新通常由推送 `main` 后自动部署，也可以在 Vercel Dashboard 中手动 Redeploy。部署前确认 PostgreSQL 备份可用；绑定或更换域名后同步更新 `APP_ORIGIN`。
 
 ## 开发与验证
 
 ```bash
-npm run lint
-npm run typecheck
-npm test
-npm run build
-# 或一次执行全部检查
-npm run check
+npm run lint       # ESLint
+npm run typecheck  # TypeScript
+npm test           # Vitest
+npm run build      # Production build
+npm run check      # 依次执行以上全部检查
 ```
 
-测试覆盖 RFC 4226/6238、Google migration protobuf、明文密钥序列化、客户端密钥包装/解包、AEAD 加解密、密码哈希与认证原语。
+当前测试覆盖：
+
+- RFC 4226 / RFC 6238 验证向量；
+- Google Authenticator migration protobuf；
+- 明文密钥导出格式；
+- 客户端密钥包装、解包和 AEAD；
+- 服务端密码哈希及认证原语。
+
+面向编码 Agent 的架构、约束和修改流程见 [AGENTS.md](AGENTS.md)。
 
 ## 项目结构
 
 ```text
-app/                    Next.js 页面、API routes、CSP middleware
-components/             认证、仪表盘、导入、详情、设置 UI
-lib/client/             浏览器加密、OTP、备份与 API client
-lib/server/             数据库适配、认证、会话、HTTP 安全
-lib/shared/             双端类型与输入 schema
-Dockerfile              非 root 的生产镜像
-docker-compose.yml      SQLite 持久卷部署
+app/                       Next.js 页面、API routes
+components/                认证、仪表盘、导入、详情和设置 UI
+lib/client/                浏览器加密、OTP、迁移、备份、密钥导出
+lib/server/                数据库适配、认证、会话、HTTP 安全
+lib/shared/                双端类型和输入 schema
+middleware.ts              CSP nonce
+Dockerfile                 非 root 生产镜像
+docker-compose.yml         SQLite 持久卷部署
+SECURITY.md                 安全边界与漏洞报告
+AGENTS.md                   Agent 开发指南
 ```
 
-## 隐私说明
+## 常见问题
 
-项目不包含统计、广告、远程字体、Logo 查询服务或第三方脚本。服务图标使用本地生成的字母铭牌。请不要在 issue、日志或截图中公开真实密钥、二维码、验证码、会话 Cookie 或备份。
+### 忘记主密码怎么办？
+
+先不要删除旧数据库或 volume。恢复流程是：准备一个**新的空存储**，创建新所有者，再使用 `.v2fa` 文件和备份密码导入。
+
+Docker 可以保留旧 volume 并启动一个新项目 volume：
+
+```bash
+docker compose down                # 不要添加 -v
+docker compose -p visual-2fa-recovery up -d --build
+```
+
+确认新保险库和备份恢复正常后，再决定是否删除旧 volume。PostgreSQL / Vercel 应创建新的空数据库，临时把 `DATABASE_URL` 指向新库并重新部署；不要直接清空唯一的生产数据库。
+
+### 为什么不能直接在 Vercel 使用 SQLite？
+
+Serverless 文件系统不是可靠持久存储。Vercel 部署必须使用外部 PostgreSQL。
+
+### 为什么复制后不一定能清空系统剪贴板？
+
+浏览器和操作系统可能禁止后台读取或覆盖剪贴板，因此自动清除只能“尽力而为”。
+
+### 明文密钥导出和加密备份有什么区别？
+
+`.v2fa` 需要备份密码才能解密；明文密钥 JSON 可被任何读取文件的人直接使用。优先使用 `.v2fa`，只有迁移到其他应用时才导出明文密钥。
+
+## 隐私
+
+Visual 2FA 不包含统计、广告、远程字体、Logo 查询服务或第三方脚本。不要在 issue、日志或截图中公开真实密钥、二维码、验证码、会话 Cookie 或备份文件。
 
 ## License
 

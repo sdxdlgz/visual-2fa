@@ -355,6 +355,7 @@ For UI smoke tests, use fake OTP seeds and an isolated browser profile. Verify:
 
 ### Docker / SQLite
 
+- Builder and runner use Node 24. The builder installs `python3`, `make`, and `g++` because `better-sqlite3` may compile from source; do not remove these without proving both AMD64 and ARM64 installs use compatible prebuilds.
 - `Dockerfile` runs as a non-root user and keeps the container-internal port at `3000`.
 - `docker-compose.yml` pulls `ghcr.io/sdxdlgz/visual-2fa:${VISUAL_2FA_TAG:-latest}` and maps host port `${VISUAL_2FA_PORT:-28473}` to container port `3000`.
 - `docker-compose.build.yml` is the explicit local-source build override; do not re-add `build:` to the pull-only base file.

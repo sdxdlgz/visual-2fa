@@ -36,7 +36,7 @@ Compose 默认拉取 `ghcr.io/sdxdlgz/visual-2fa:latest`。VPS 对外使用 `284
 
 ### 方式二：本地开发
 
-要求 Node.js `>= 20.19`。
+要求 Node.js `>= 24`。Docker 用户无需单独安装 Node.js。
 
 ```bash
 git clone https://github.com/sdxdlgz/visual-2fa.git

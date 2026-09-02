@@ -4,7 +4,7 @@
   "private": true,
   "description": "A secure, self-hosted, client-encrypted web authenticator vault.",
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "dev": "next dev",

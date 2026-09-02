@@ -154,7 +154,7 @@ ghcr.io/sdxdlgz/visual-2fa:latest
 
 `.github/workflows/publish-container.yml` 会在以下情况自动测试、构建并上传 Linux AMD64/ARM64 镜像：
 
-- 推送到 `main`：发布 `latest` 和 `sha-<commit>`；
+- 推送非纯文档改动到 `main`：发布 `latest` 和 `sha-<commit>`；
 - 推送 `v*.*.*` 标签：额外发布版本标签；
 - 在 GitHub Actions 页面手工运行 `workflow_dispatch`。
 
@@ -164,13 +164,11 @@ VPS 可以直接执行：
 docker pull ghcr.io/sdxdlgz/visual-2fa:latest
 ```
 
-GHCR 第一次生成 package 后，需要在 GitHub 的 **Packages → visual-2fa → Package settings → Change visibility** 中设为 **Public**，之后无需登录即可拉取。如果保持 Private，则先登录：
+当前镜像已公开，无需 `docker login`。如果你在 fork 或私有仓库中部署同一工作流，需要先把对应 GHCR package 设为 Public，或使用至少带 `read:packages` 权限的 token 登录：
 
 ```bash
-echo "$GHCR_TOKEN" | docker login ghcr.io -u sdxdlgz --password-stdin
+echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
 ```
-
-其中 token 至少需要 `read:packages` 权限。
 
 ### Docker / VPS
 

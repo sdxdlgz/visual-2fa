@@ -360,7 +360,7 @@ For UI smoke tests, use fake OTP seeds and an isolated browser profile. Verify:
 - `docker-compose.yml` pulls `ghcr.io/sdxdlgz/visual-2fa:${VISUAL_2FA_TAG:-latest}` and maps host port `${VISUAL_2FA_PORT:-28473}` to container port `3000`.
 - `docker-compose.build.yml` is the explicit local-source build override; do not re-add `build:` to the pull-only base file.
 - `/app/data` is the persistent volume. Do not bake a database or `.env` into the image.
-- `.github/workflows/publish-container.yml` must run checks before publishing AMD64/ARM64 images. Main publishes `latest` and `sha-*`; `v*.*.*` tags publish release tags.
+- `.github/workflows/publish-container.yml` must run checks before publishing AMD64/ARM64 images. Non-documentation changes on main publish `latest` and `sha-*`; `v*.*.*` tags publish release tags. Documentation-only pushes are intentionally ignored.
 - Keep GHCR images linked to this repository through OCI source labels. Changing registry names or tag policy requires README/Compose/workflow updates together.
 - Use HTTPS through a reverse proxy in production. Caddy on the host proxies to `127.0.0.1:28473`, not directly to the container-only port.
 

@@ -4,6 +4,9 @@ name: Publish container image
   push:
     branches: [main]
     tags: ["v*.*.*"]
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE"
   workflow_dispatch:
 
 concurrency:

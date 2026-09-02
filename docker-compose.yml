@@ -1,9 +1,6 @@
 services:
   visual-2fa:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: visual-2fa:latest
+    image: ghcr.io/sdxdlgz/visual-2fa:${VISUAL_2FA_TAG:-latest}
     container_name: visual-2fa
     restart: unless-stopped
     environment:
@@ -11,7 +8,7 @@ services:
       SESSION_DAYS: ${SESSION_DAYS:-7}
       APP_ORIGIN: ${APP_ORIGIN:-}
     ports:
-      - "${VISUAL_2FA_PORT:-3000}:3000"
+      - "${VISUAL_2FA_PORT:-28473}:3000"
     volumes:
       - visual-2fa-data:/app/data
     security_opt:

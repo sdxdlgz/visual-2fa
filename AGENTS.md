@@ -301,6 +301,7 @@ npm run build
 npm run check
 npm audit --omit=dev
 docker-compose -f docker-compose.yml config --quiet
+docker-compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
 ```
 
 `npm run check` runs lint, typecheck, all Vitest tests, and the production build. Docker Compose validation and production/browser smoke checks are separate.
@@ -314,7 +315,7 @@ Before committing a functional change:
 5. changed security flows have focused success and rejection tests;
 6. changed UI has desktop and 390px mobile browser verification;
 7. production CSP script nonces still match the response nonce;
-8. `docker-compose ... config --quiet` passes when deployment files changed.
+8. both pull-only and local-build Compose configurations validate when deployment files changed.
 
 If audit or a required registry is unreachable, record the external failure and report that check as unverified; never convert a network failure into a pass.
 
@@ -354,10 +355,13 @@ For UI smoke tests, use fake OTP seeds and an isolated browser profile. Verify:
 
 ### Docker / SQLite
 
-- `Dockerfile` runs as a non-root user.
-- `/app/data` is the persistent volume.
-- Do not bake a database or `.env` into the image.
-- Use HTTPS through a reverse proxy in production.
+- `Dockerfile` runs as a non-root user and keeps the container-internal port at `3000`.
+- `docker-compose.yml` pulls `ghcr.io/sdxdlgz/visual-2fa:${VISUAL_2FA_TAG:-latest}` and maps host port `${VISUAL_2FA_PORT:-28473}` to container port `3000`.
+- `docker-compose.build.yml` is the explicit local-source build override; do not re-add `build:` to the pull-only base file.
+- `/app/data` is the persistent volume. Do not bake a database or `.env` into the image.
+- `.github/workflows/publish-container.yml` must run checks before publishing AMD64/ARM64 images. Main publishes `latest` and `sha-*`; `v*.*.*` tags publish release tags.
+- Keep GHCR images linked to this repository through OCI source labels. Changing registry names or tag policy requires README/Compose/workflow updates together.
+- Use HTTPS through a reverse proxy in production. Caddy on the host proxies to `127.0.0.1:28473`, not directly to the container-only port.
 
 ### Vercel / PostgreSQL
 

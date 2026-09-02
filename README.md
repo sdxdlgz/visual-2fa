@@ -1,5 +1,7 @@
 # Visual 2FA
 
+[![Publish container image](https://github.com/sdxdlgz/visual-2fa/actions/workflows/publish-container.yml/badge.svg)](https://github.com/sdxdlgz/visual-2fa/actions/workflows/publish-container.yml)
+
 安全优先、可自托管的网页版 2FA 验证器保险库。
 
 Visual 2FA 面向个人使用：首次创建所有者后即关闭注册；验证码密钥、服务名称、账户、备注、分组和标签均在浏览器中加密后再持久化。
@@ -20,10 +22,13 @@ Visual 2FA 面向个人使用：首次创建所有者后即关闭注册；验证
 git clone https://github.com/sdxdlgz/visual-2fa.git
 cd visual-2fa
 cp .env.example .env
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
-打开 <http://localhost:3000>，创建第一个所有者账户。
+打开 <http://localhost:28473>，创建第一个所有者账户。
+
+Compose 默认拉取 `ghcr.io/sdxdlgz/visual-2fa:latest`。VPS 对外使用 `28473`，容器内部仍监听 `3000`。
 
 如果系统仍使用 Compose v1，把 `docker compose` 改为 `docker-compose`。
 
@@ -139,11 +144,40 @@ Visual 2FA 对 HOTP 保留独立的“复制”和“生成下一组”操作，
 | Vercel / Serverless | PostgreSQL | Neon、Supabase、Vercel Postgres 等 pooled URL |
 | 本地开发 | SQLite | `npm run dev` |
 
+### Docker 镜像与自动发布
+
+镜像地址：
+
+```text
+ghcr.io/sdxdlgz/visual-2fa:latest
+```
+
+`.github/workflows/publish-container.yml` 会在以下情况自动测试、构建并上传 Linux AMD64/ARM64 镜像：
+
+- 推送到 `main`：发布 `latest` 和 `sha-<commit>`；
+- 推送 `v*.*.*` 标签：额外发布版本标签；
+- 在 GitHub Actions 页面手工运行 `workflow_dispatch`。
+
+VPS 可以直接执行：
+
+```bash
+docker pull ghcr.io/sdxdlgz/visual-2fa:latest
+```
+
+GHCR 第一次生成 package 后，需要在 GitHub 的 **Packages → visual-2fa → Package settings → Change visibility** 中设为 **Public**，之后无需登录即可拉取。如果保持 Private，则先登录：
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u sdxdlgz --password-stdin
+```
+
+其中 token 至少需要 `read:packages` 权限。
+
 ### Docker / VPS
 
 默认配置：
 
-- Web 端口：`3000`
+- VPS 对外端口：`28473`
+- 容器内部端口：`3000`
 - 数据库：`file:./data/visual-2fa.db`
 - Docker volume：`visual-2fa-data`
 
@@ -151,6 +185,12 @@ Visual 2FA 对 HOTP 保留独立的“复制”和“生成下一组”操作，
 
 ```bash
 VISUAL_2FA_PORT=8080 docker compose up -d
+```
+
+如果需要从当前源码本地构建，而不是拉取 GHCR 镜像：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 正式环境必须：
@@ -164,7 +204,7 @@ Caddy 示例：
 
 ```caddyfile
 2fa.example.com {
-  reverse_proxy 127.0.0.1:3000
+  reverse_proxy 127.0.0.1:28473
 }
 ```
 
@@ -190,7 +230,8 @@ SESSION_DAYS=7
 | `APP_ORIGIN` | 从请求推断 | 正式环境建议显式配置；必须是不带路径和结尾 `/` 的完整 origin |
 | `SESSION_DAYS` | `7` | 会话有效天数，范围 1–30 |
 | `DATABASE_POOL_SIZE` | `5` | 每个应用实例的 PostgreSQL 最大连接数 |
-| `VISUAL_2FA_PORT` | `3000` | Docker Compose 对外端口 |
+| `VISUAL_2FA_PORT` | `28473` | Docker Compose 对外端口；容器内部仍为 3000 |
+| `VISUAL_2FA_TAG` | `latest` | GHCR 镜像标签，可固定为版本或 `sha-*` |
 
 ## 安全模型
 
@@ -232,7 +273,8 @@ OTP secret、账户、备注、分组、标签 ──AES-GCM──────�
 
 ```bash
 git pull
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 更新后：
@@ -305,7 +347,9 @@ lib/server/                数据库适配、认证、会话、HTTP 安全
 lib/shared/                双端类型和输入 schema
 middleware.ts              CSP nonce
 Dockerfile                 非 root 生产镜像
-docker-compose.yml         SQLite 持久卷部署
+docker-compose.yml         GHCR 镜像拉取与 SQLite 持久卷部署
+docker-compose.build.yml   从当前源码本地构建的 Compose override
+.github/workflows/         GHCR 多架构镜像自动发布
 SECURITY.md                 安全边界与漏洞报告
 AGENTS.md                   Agent 开发指南
 ```
@@ -320,7 +364,8 @@ Docker 可以保留旧 volume 并启动一个新项目 volume：
 
 ```bash
 docker compose down                # 不要添加 -v
-docker compose -p visual-2fa-recovery up -d --build
+docker compose -p visual-2fa-recovery pull
+docker compose -p visual-2fa-recovery up -d
 ```
 
 确认新保险库和备份恢复正常后，再决定是否删除旧 volume。PostgreSQL / Vercel 应创建新的空数据库，临时把 `DATABASE_URL` 指向新库并重新部署；不要直接清空唯一的生产数据库。
@@ -336,6 +381,10 @@ Serverless 文件系统不是可靠持久存储。Vercel 部署必须使用外�
 ### 明文密钥导出和加密备份有什么区别？
 
 `.v2fa` 需要备份密码才能解密；明文密钥 JSON 可被任何读取文件的人直接使用。优先使用 `.v2fa`，只有迁移到其他应用时才导出明文密钥。
+
+### 为什么容器内部仍然是 3000？
+
+`28473:3000` 表示 VPS 暴露 `28473`，容器内部继续使用 Next.js 的标准 `3000`。公网用户接触不到内部端口，保留内部端口可以让镜像、健康检查和不同部署平台保持兼容。
 
 ## 隐私
 

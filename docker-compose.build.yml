@@ -1,0 +1,6 @@
+services:
+  visual-2fa:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: visual-2fa:local
